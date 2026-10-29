@@ -15,7 +15,7 @@ sys.path[:0] = [str(APP), str(APP / "proto")]
 local = {p.stem for p in APP.glob("*.py")} | {p.name for p in APP.iterdir() if p.is_dir()}
 wanted = set()
 for path in APP.rglob("*.py"):
-    if "test" in path.name or "node_modules" in path.parts:
+    if "test" in path.name or "node_modules" in path.parts or "wesense-ingester-core" in path.parts:
         continue
     for node in ast.walk(ast.parse(path.read_text(), str(path))):
         if isinstance(node, ast.Import):
