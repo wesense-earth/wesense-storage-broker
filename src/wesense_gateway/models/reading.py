@@ -36,13 +36,17 @@ class ReadingIn(BaseModel):
     data_license: str = "CC-BY-4.0"
     signing_payload_version: int = 1
     public_key: str = ""
+    # Signed (part of the canonical reading). Dropping them makes the stored
+    # row unverifiable, so the broker must store every canonical field.
+    calibration_status: str = ""
+    location_source: str = ""
 
     @field_validator(
         "data_source_name", "network_source", "ingestion_node_id", "unit", "geo_country",
         "geo_subdivision", "board_model", "sensor_model", "deployment_type",
         "deployment_type_source", "transport_type", "deployment_location",
         "node_name", "node_info", "node_info_url", "signature", "ingester_id", "data_license",
-        "reading_type_name", "public_key",
+        "reading_type_name", "public_key", "calibration_status", "location_source",
         mode="before",
     )
     @classmethod

@@ -6,18 +6,17 @@ import json
 import pytest
 import pyarrow.parquet as pq
 
-from wesense_gateway.archive.builder import ParquetArchiveBuilder, PARQUET_SCHEMA
+from wesense_gateway.archive.builder import ParquetArchiveBuilder, PARQUET_SCHEMA, SIGNED_COLUMNS
 from wesense_gateway.archive.manifest import (
     build_trust_snapshot,
     compute_readings_hash,
 )
 
 
-def test_parquet_schema_has_18_columns():
-    """Parquet schema should have 18 columns matching the archiver."""
-    assert len(PARQUET_SCHEMA) == 18
+def test_parquet_schema_is_reading_id_signed_fields_and_signature():
+    """Parquet v2: reading_id, every signed field, then signature metadata."""
     names = [f.name for f in PARQUET_SCHEMA]
-    assert names[0] == "reading_id"
+    assert names == ["reading_id"] + SIGNED_COLUMNS
     assert names[-1] == "signature"
 
 
@@ -71,7 +70,7 @@ def test_export_parquet_produces_valid_file():
     # Should be valid Parquet
     table = pq.read_table(io.BytesIO(parquet_bytes))
     assert table.num_rows == 1
-    assert table.num_columns == 18
+    assert table.num_columns == len(PARQUET_SCHEMA)
     assert table.column("reading_id")[0].as_py() == "abc123"
     assert table.column("value")[0].as_py() == 22.5
 

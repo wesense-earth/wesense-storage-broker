@@ -13,7 +13,9 @@ from wesense_ingester.signing.trust import TrustStore
 # Parquet column set changes (adding/removing/renaming columns). This is
 # for consumer dispatch — "I see schema v2, I know it has data_license";
 # entirely separate from the signing_payload_version per reading.
-PARQUET_SCHEMA_VERSION = "v1"
+# v2 (2026-11): every signed field is included and missing positions stay null,
+# so an archive can be verified on its own. v1 dropped 8 signed fields.
+PARQUET_SCHEMA_VERSION = "v2"
 
 
 def build_trust_snapshot(
