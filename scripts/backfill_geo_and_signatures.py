@@ -16,7 +16,7 @@ Three modes:
 
 Usage:
     python backfill_geo_and_signatures.py --mode both \
-        --ch-host 192.168.43.11 --ch-user default --ch-password 'v3r8^t1m77'
+        --ch-host <clickhouse-host> --ch-user default --ch-password "$CLICKHOUSE_ADMIN_PASSWORD"
 
     # Or from inside the gateway container:
     python scripts/backfill_geo_and_signatures.py --mode both
