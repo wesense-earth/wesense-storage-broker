@@ -70,6 +70,9 @@ def connect(config: GatewayConfig):
         username=config.clickhouse_user,
         password=config.clickhouse_password,
         database=config.clickhouse_database,
+        # No shared session: the reader streams while the writer inserts, and
+        # ClickHouse refuses concurrent use of one session (code 373).
+        autogenerate_session_id=False,
     )
     if config.tls_enabled:
         kwargs["secure"] = True
@@ -101,7 +104,7 @@ def verifies(row: dict, overrides: dict | None = None) -> bool:
         return False
 
 
-def repair_source(client, table: str, data_source: str, apply: bool) -> Counter:
+def repair_source(client, writer, table: str, data_source: str, apply: bool) -> Counter:
     counts = Counter()
     months = [
         r[0] for r in client.query(
@@ -135,10 +138,10 @@ def repair_source(client, table: str, data_source: str, apply: bool) -> Counter:
                     row.update(fix)
                     pending.append(tuple(row[c] for c in columns))
                     if apply and len(pending) >= INSERT_BATCH:
-                        client.insert(table, pending, column_names=columns)
+                        writer.insert(table, pending, column_names=columns)
                         pending = []
         if apply and pending:
-            client.insert(table, pending, column_names=columns)
+            writer.insert(table, pending, column_names=columns)
         logger.info("%s %s: %s", data_source, month, dict(counts))
     return counts
 
@@ -150,14 +153,15 @@ def main() -> int:
     args = parser.parse_args()
 
     config = GatewayConfig()
-    client = connect(config)
+    client = connect(config)   # reads (streams)
+    writer = connect(config)   # inserts, on its own connection
     table = config.clickhouse_table
     sources = args.data_source or DEFAULT_DATA_SOURCES
 
     logger.info("%s on %s (%s)", "Repairing" if args.apply else "Dry run", table, ", ".join(sources))
     total = Counter()
     for ds in sources:
-        total += repair_source(client, table, ds, args.apply)
+        total += repair_source(client, writer, table, ds, args.apply)
 
     logger.info(
         "Done. %d already verified, %d %s, %d still do not verify.",
