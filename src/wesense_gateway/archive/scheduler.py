@@ -9,6 +9,7 @@ import clickhouse_connect
 from wesense_ingester.signing.keys import IngesterKeyManager, KeyConfig
 from wesense_ingester.signing.trust import TrustStore
 
+from wesense_gateway.archive import BACKGROUND_QUERY_SETTINGS
 from wesense_gateway.archive.builder import ArchiveVerificationError, ParquetArchiveBuilder
 from wesense_gateway.backends.base import StorageBackend
 from wesense_gateway.config import GatewayConfig
@@ -185,7 +186,7 @@ class ArchiveScheduler:
               AND geo_subdivision != ''
             ORDER BY geo_country, geo_subdivision
         """
-        result = self._ch_client.query(query, parameters=params)
+        result = self._ch_client.query(query, parameters=params, settings=BACKGROUND_QUERY_SETTINGS)
         return [(row[0], row[1]) for row in result.result_rows if row[0] and row[1]]
 
     def _get_dates_with_data(
@@ -209,7 +210,7 @@ class ArchiveScheduler:
             WHERE {' AND '.join(conditions)}
             ORDER BY d
         """
-        result = self._ch_client.query(query, parameters=params)
+        result = self._ch_client.query(query, parameters=params, settings=BACKGROUND_QUERY_SETTINGS)
         dates = set()
         for row in result.result_rows:
             d = row[0]

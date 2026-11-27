@@ -32,6 +32,7 @@ from datetime import timezone
 import clickhouse_connect
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+from wesense_gateway.archive import BACKGROUND_QUERY_SETTINGS
 from wesense_gateway.config import GatewayConfig
 from wesense_ingester.pipeline import build_canonical, canonical_to_json
 
@@ -112,6 +113,7 @@ def repair_source(client, writer, table: str, data_source: str, apply: bool) -> 
             "WHERE data_source = {ds:String} AND signature != '' AND public_key != '' "
             "AND location_source = '' ORDER BY m",
             parameters={"ds": data_source},
+            settings=BACKGROUND_QUERY_SETTINGS,
         ).result_rows
     ]
     for month in months:
@@ -122,6 +124,7 @@ def repair_source(client, writer, table: str, data_source: str, apply: bool) -> 
             "WHERE data_source = {ds:String} AND toYYYYMM(timestamp) = {m:UInt32} "
             "AND signature != '' AND public_key != '' AND location_source = ''",
             parameters={"ds": data_source, "m": month},
+            settings=BACKGROUND_QUERY_SETTINGS,
         ) as stream:
             columns = list(stream.source.column_names)
             for block in stream:

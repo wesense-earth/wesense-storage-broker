@@ -21,6 +21,7 @@ from wesense_gateway.archive.manifest import (
     build_trust_snapshot_from_readings,
     compute_readings_hash,
 )
+from wesense_gateway.archive import BACKGROUND_QUERY_SETTINGS
 from wesense_gateway.archive.verifier import verify_signatures
 from wesense_gateway.backends.base import StorageBackend
 
@@ -203,6 +204,7 @@ class ParquetArchiveBuilder:
                 "country": country,
                 "subdivision": subdivision,
             },
+            settings=BACKGROUND_QUERY_SETTINGS,
         )
 
         readings = []
