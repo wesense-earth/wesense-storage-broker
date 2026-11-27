@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from wesense_gateway.models.reading import ReadingBatch, ReadingIn
 from wesense_gateway.pipeline.processor import ReadingProcessor
+from wesense_gateway.storage.clickhouse import CLICKHOUSE_COLUMNS
 
 
 @pytest.fixture
@@ -60,10 +61,9 @@ async def test_row_has_geo_fields_from_reading(processor, sample_batch, mock_ch_
     """Row tuple should contain geo_country/geo_subdivision from the reading."""
     await processor.process_batch(sample_batch)
 
-    row = mock_ch_writer.add.call_args[0][0]
-    # geo_country is at index 11, geo_subdivision at index 12
-    assert row[11] == "nz"
-    assert row[12] == "wgn"
+    row = dict(zip(CLICKHOUSE_COLUMNS, mock_ch_writer.add.call_args[0][0]))
+    assert row["geo_country"] == "nz"
+    assert row["geo_subdivision"] == "wgn"
 
 
 async def test_row_timestamp_is_datetime(processor, sample_batch, mock_ch_writer):

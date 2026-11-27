@@ -10,7 +10,8 @@ from wesense_gateway.config import GatewayConfig
 
 logger = logging.getLogger(__name__)
 
-# 30-column unified schema
+# Columns the broker writes. Must include every canonical (signed) field, or
+# stored rows can no longer be verified — see tests/test_signed_roundtrip.py.
 CLICKHOUSE_COLUMNS = [
     "timestamp", "device_id", "data_source", "data_source_name",
     "network_source", "ingestion_node_id",
@@ -20,6 +21,7 @@ CLICKHOUSE_COLUMNS = [
     "transport_type", "deployment_location", "node_name", "node_info", "node_info_url",
     "signature", "ingester_id", "key_version", "data_license",
     "signing_payload_version", "public_key",
+    "calibration_status", "location_source",
 ]
 
 

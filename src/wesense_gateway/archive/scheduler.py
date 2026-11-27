@@ -9,7 +9,7 @@ import clickhouse_connect
 from wesense_ingester.signing.keys import IngesterKeyManager, KeyConfig
 from wesense_ingester.signing.trust import TrustStore
 
-from wesense_gateway.archive.builder import ParquetArchiveBuilder
+from wesense_gateway.archive.builder import ArchiveVerificationError, ParquetArchiveBuilder
 from wesense_gateway.backends.base import StorageBackend
 from wesense_gateway.config import GatewayConfig
 
@@ -35,6 +35,8 @@ class ArchiveScheduler:
         self._key_manager: IngesterKeyManager | None = None
         self._last_cycle: str = ""
         self._total_archived: int = 0
+        # Region-days with signed readings of which none verify (last cycle)
+        self._unverifiable: list[str] = []
 
     async def start(self) -> None:
         """Initialize resources and start the background loop."""
@@ -98,6 +100,7 @@ class ArchiveScheduler:
             return
 
         logger.info("Regions with signed data: %d", len(regions))
+        unverifiable: list[str] = []
 
         builder = ParquetArchiveBuilder(
             ch_client=self._ch_client,
@@ -134,13 +137,24 @@ class ArchiveScheduler:
                         "%s/%s: archived %d/%d (%s)",
                         country, subdivision, i, len(missing), period,
                     )
+                except ArchiveVerificationError as e:
+                    unverifiable.append(f"{country}/{subdivision}/{period}")
+                    logger.error("Not archived: %s", e)
                 except Exception as e:
                     logger.error(
                         "Failed to archive %s/%s/%s: %s",
                         country, subdivision, period, e, exc_info=True,
                     )
 
-        logger.info("Archive cycle complete")
+        self._unverifiable = unverifiable
+        if unverifiable:
+            logger.error(
+                "Archive cycle complete, but %d region-days could not be archived because "
+                "none of their readings verify (first: %s). They are retried every cycle.",
+                len(unverifiable), ", ".join(unverifiable[:5]),
+            )
+        else:
+            logger.info("Archive cycle complete")
 
     def _get_regions_with_data(
         self, start: date | None, end: date
@@ -210,6 +224,7 @@ class ArchiveScheduler:
         return {
             "last_cycle": self._last_cycle,
             "total_archived": self._total_archived,
+            "unverifiable_region_days": len(self._unverifiable),
             "interval_hours": self._config.archive_interval_hours,
         }
 

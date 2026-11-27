@@ -78,7 +78,7 @@ class ReadingProcessor:
         reading_id = generate_reading_id(
             reading.device_id, reading.timestamp, reading.reading_type, reading.value
         )
-        _ = reading_id  # Used for dedup/IPFS; not stored in ClickHouse 26-col schema
+        _ = reading_id  # Used for dedup/IPFS; not stored in ClickHouse
 
         ts = datetime.fromtimestamp(reading.timestamp, tz=timezone.utc)
 
@@ -113,6 +113,8 @@ class ReadingProcessor:
             reading.data_license,
             reading.signing_payload_version,
             reading.public_key,
+            reading.calibration_status,
+            reading.location_source,
         )
 
     def get_stats(self) -> dict:

@@ -12,6 +12,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from wesense_ingester.ids.reading_id import generate_reading_id
+from wesense_ingester.pipeline import CANONICAL_FIELDS
 from wesense_ingester.signing.keys import IngesterKeyManager
 from wesense_ingester.signing.trust import TrustStore
 
@@ -25,31 +26,43 @@ from wesense_gateway.backends.base import StorageBackend
 
 logger = logging.getLogger(__name__)
 
-# 18-column Parquet schema (matches wesense-archiver)
-PARQUET_SCHEMA = pa.schema([
-    ("reading_id", pa.string()),
-    ("device_id", pa.string()),
-    ("timestamp", pa.string()),
-    ("reading_type", pa.string()),
-    ("reading_type_name", pa.string()),
-    ("value", pa.float64()),
-    ("unit", pa.string()),
-    ("latitude", pa.float64()),
-    ("longitude", pa.float64()),
-    ("altitude", pa.float64()),
-    ("geo_country", pa.string()),
-    ("geo_subdivision", pa.string()),
-    ("data_source", pa.string()),
-    ("data_license", pa.string()),
-    ("board_model", pa.string()),
-    ("node_name", pa.string()),
-    ("transport_type", pa.string()),
-    ("ingester_id", pa.string()),
-    ("key_version", pa.uint32()),
-    ("signing_payload_version", pa.uint32()),
-    ("public_key", pa.string()),
-    ("signature", pa.string()),
-])
+
+class ArchiveVerificationError(Exception):
+    """A region-day has signed readings but none of them verify."""
+
+# ClickHouse column name for each canonical (signed) field. Only the transport
+# field is named differently in storage.
+_STORAGE_NAME = {"sensor_transport": "transport_type"}
+
+# Signature metadata stored alongside the canonical fields (not itself signed)
+SIGNATURE_COLUMNS = [
+    "ingester_id", "key_version", "signing_payload_version", "public_key", "signature",
+]
+
+# Every signed field plus signature metadata, in ClickHouse names. Derived from
+# the canonical field list so the archive query can never drop a signed field:
+# a missing field is rebuilt as its default and the signature no longer verifies.
+SIGNED_COLUMNS = [_STORAGE_NAME.get(f, f) for f in CANONICAL_FIELDS] + SIGNATURE_COLUMNS
+
+# Nullable in the canonical reading: None must stay None (not 0) to verify
+NULLABLE_FLOAT_COLUMNS = {"latitude", "longitude", "altitude"}
+_FLOAT_COLUMNS = {"value"} | NULLABLE_FLOAT_COLUMNS
+_UINT_COLUMNS = {"key_version", "signing_payload_version"}
+
+
+def _parquet_type(name: str) -> pa.DataType:
+    if name in _FLOAT_COLUMNS:
+        return pa.float64()
+    if name in _UINT_COLUMNS:
+        return pa.uint32()
+    return pa.string()
+
+
+# Parquet schema v2: reading_id + every signed field + signature metadata, so an
+# archive can be verified on its own. Timestamp is ISO 8601 (UTC).
+PARQUET_SCHEMA = pa.schema(
+    [("reading_id", pa.string())] + [(name, _parquet_type(name)) for name in SIGNED_COLUMNS]
+)
 
 
 class ParquetArchiveBuilder:
@@ -107,8 +120,16 @@ class ParquetArchiveBuilder:
         )
 
         if not verified:
-            logger.warning("No verified readings for %s/%s/%s — skipping", country, subdivision, period)
-            return None
+            raise ArchiveVerificationError(
+                f"{country}/{subdivision}/{period}: none of {failed} signed readings verify, so "
+                "no archive was written. The stored rows differ from what was signed; see "
+                "scripts/repair_signed_fields.py and the Data Integrity docs."
+            )
+        if failed:
+            logger.warning(
+                "%s/%s/%s: %d of %d signed readings do not verify and are left out of the archive",
+                country, subdivision, period, failed, failed + len(verified),
+            )
 
         # Trust snapshot — sourced directly from the readings' public_key column.
         # Makes archives self-contained without any live TrustStore dependency.
@@ -165,16 +186,13 @@ class ParquetArchiveBuilder:
         reject newer readings at ingestion (forward rejection), so they
         never produce divergent archives.
         """
-        query = """
-            SELECT
-                device_id, timestamp, reading_type, reading_type_name, value, unit,
-                latitude, longitude, altitude, geo_country, geo_subdivision,
-                data_source, data_license, board_model, node_name, transport_type,
-                ingester_id, key_version, signing_payload_version, public_key, signature
+        columns = SIGNED_COLUMNS
+        query = f"""
+            SELECT {", ".join(columns)}
             FROM sensor_readings FINAL
-            WHERE toDate(timestamp) = {period:String}
-              AND geo_country = {country:String}
-              AND geo_subdivision = {subdivision:String}
+            WHERE toDate(timestamp) = {{period:String}}
+              AND geo_country = {{country:String}}
+              AND geo_subdivision = {{subdivision:String}}
               AND signature != ''
             ORDER BY device_id, reading_type, timestamp
         """
@@ -186,14 +204,6 @@ class ParquetArchiveBuilder:
                 "subdivision": subdivision,
             },
         )
-
-        columns = [
-            "device_id", "timestamp", "reading_type", "reading_type_name", "value",
-            "unit", "latitude", "longitude", "altitude", "geo_country",
-            "geo_subdivision", "data_source", "data_license", "board_model", "node_name",
-            "transport_type", "ingester_id", "key_version", "signing_payload_version",
-            "public_key", "signature",
-        ]
 
         readings = []
         for row in result.result_rows:
@@ -229,7 +239,11 @@ class ParquetArchiveBuilder:
         columns = {}
         for field in PARQUET_SCHEMA:
             col_name = field.name
-            if field.type == pa.float64():
+            if col_name in NULLABLE_FLOAT_COLUMNS:
+                columns[col_name] = [
+                    None if r.get(col_name) is None else float(r[col_name]) for r in readings_sorted
+                ]
+            elif field.type == pa.float64():
                 columns[col_name] = [float(r.get(col_name, 0) or 0) for r in readings_sorted]
             elif field.type == pa.uint32():
                 columns[col_name] = [int(r.get(col_name, 0) or 0) for r in readings_sorted]
